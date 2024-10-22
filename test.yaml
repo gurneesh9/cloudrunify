@@ -1,0 +1,23 @@
+version: 1.0
+project: 
+service: 
+
+environments:
+  dev:
+    region: 
+    memory: 
+    cpu: 
+    max_instances: 
+  prod:
+    region: 
+    memory: 
+    cpu: 
+    max_instances: 
+
+container:
+  image: 
+
+traffic:
+  - tag: current
+    percent: 100
+

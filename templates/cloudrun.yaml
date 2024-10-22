@@ -1,0 +1,48 @@
+version: 1.0
+project_id: ""    # User's GCP Project ID
+region: ""        # Default region, can be overridden in environments
+
+service: 
+  name: ""        # Cloud Run service name
+  allow_unauthenticated: false  # Whether the service should allow unauthenticated access
+  service_account: ""           # Service account email to use for this service
+
+environments:
+  dev:
+    region: ""       # Optional, override the default region
+    memory: 256Mi
+    cpu: 1
+    max_instances: 10
+    min_instances: 0  # Optional, for scaling down
+    concurrency: 80   # Number of requests the service can handle at the same time
+    allow_unauthenticated: true   # Can be overridden for specific environments
+    service_account: ""           # Can override default service account for dev
+  prod:
+    region: ""       # Optional, override the default region
+    memory: 512Mi
+    cpu: 2
+    max_instances: 100
+    min_instances: 1  # Optional, prevents scale to zero in production
+    concurrency: 80
+    allow_unauthenticated: false  # Disable unauthenticated access in production
+    service_account: ""           # Can override default service account for prod
+
+container:
+  image: ""          # The container image URL from Artifact Registry or GCR
+  port: 8080         # Default port for the container
+  env_vars:          # Environment variables for the container
+    - name: ""       # e.g., "NODE_ENV"
+      value: ""      # e.g., "production"
+
+traffic:
+  - tag: ""          # E.g., 'current', 'previous', or specific revision names
+    percent: 100     # Percent traffic distribution
+
+secrets:
+  - name: ""         # Secret name
+    version: ""      # Version of the secret to use
+    mount_path: ""   # Optional, specify where to mount the secret
+
+custom_domain:
+  domain: ""         # Optional custom domain
+  certificate: ""    # Optional certificate for HTTPS
