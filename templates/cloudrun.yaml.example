@@ -1,45 +1,28 @@
 version: 1.0
-project_id: "my-gcp-project"    # User's GCP Project ID
-region: "us-central1"           # Default region, can be overridden in environments
+project_id: "dev-project-id"   # GCP Project ID for the dev environment
+region: "us-central1"          # Default region for this environment
 
 service: 
-  name: "my-cloud-run-service"      # Cloud Run service name
-  allow_unauthenticated: true       # Allow unauthenticated access
-  service_account: "my-service-account@my-gcp-project.iam.gserviceaccount.com" # GCP Service Account
-
-environments:
-  dev:
-    region: "us-central1"       # Region for the dev environment (optional override)
-    memory: 256Mi               # Memory allocation for the dev environment
-    cpu: 1                      # CPU allocation for the dev environment
-    max_instances: 10           # Max instances for auto-scaling
-    min_instances: 0            # Min instances, allowing scale-to-zero in dev
-    concurrency: 80             # Number of requests the service can handle concurrently
-
-  prod:
-    region: "us-west1"          # Region for the production environment (optional override)
-    memory: 512Mi               # Memory allocation for the production environment
-    cpu: 2                      # CPU allocation for the production environment
-    max_instances: 100          # Max instances for production
-    min_instances: 1            # Prevents scale to zero in production
-    concurrency: 100            # Production concurrency
+  name: "dev-service"          # Cloud Run service name for dev
+  allow_unauthenticated: true  # Enable unauthenticated access in dev
+  service_account: "dev-service-account@project-id.iam.gserviceaccount.com"  # Service account for dev
 
 container:
-  image: "gcr.io/my-gcp-project/my-image:latest"  # Container image stored in GCR
-  port: 8080                                     # Default port
+  image: "gcr.io/dev-project-id/dev-image:latest"  # Container image URL for dev
+  port: 8080
+  env_vars:                 
+    - name: "NODE_ENV"
+      value: "development"     # Set environment variables for dev
 
 traffic:
-  - tag: "current"         # Traffic tag for the current revision
-    percent: 100           # All traffic goes to the current revision
+  - tag: "current"
+    percent: 100
 
 secrets:
-  - name: "my-secret"           # Secret name from Google Secret Manager
-    version: "latest"           # Secret version to use
-    mount_path: "/secrets"      # Optional mount path
+  - name: "dev-secret"
+    version: "latest"
+    mount_path: "/secrets"
 
 custom_domain:
-  domain: "example.com"           # Custom domain to serve the application
-  certificate: "my-cert"          # Optional certificate for HTTPS
-
-logging:
-  enable_log_streaming: true      # Stream logs directly to the terminal for debugging
+  domain: "dev.example.com"    # Custom domain for dev environment
+  certificate: "dev-cert"

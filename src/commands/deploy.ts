@@ -10,6 +10,6 @@ export function createDeployCommand(): Command {
     .action(async (options) => {
       const config = ConfigParser.parse(options.config);
       const service = new CloudRunService();
-      await service.deploy(config, options.environment);
+      await service.deploy(config);
     });
 }

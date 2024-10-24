@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { createDeployCommand } from './commands/deploy';
 import { createInitCommand } from './commands/init';
 import { createPackageCommand } from './commands/package';
+import { createDestroyCommand } from './commands/destory';
 
 const VERSION = '0.0.1'
 const program = new Command();
@@ -16,6 +17,7 @@ program
 program.addCommand(createInitCommand())
 program.addCommand(createDeployCommand())
 program.addCommand(createPackageCommand())
+program.addCommand(createDestroyCommand())
 
 program.parse();
 
