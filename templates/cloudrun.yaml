@@ -1,28 +1,35 @@
-version:                    # Version of the YAML schema
-project_id:                # GCP Project ID
-region:                     # Default region for the service
+version: # Version of the YAML schema
+project_id: # GCP Project ID
+region: # Default region for the service
 
-service:                            # Service configuration
-  name:                     # Cloud Run service name
-  allow_unauthenticated: <boolean>  # Whether to allow unauthenticated access
-  service_account:          # Service account email for the service
+service: # Service configuration
+  name: # Cloud Run service name
+  allow_unauthenticated: <boolean> # Whether to allow unauthenticated access
+  service_account: # Service account email for the service
 
-container:                          # Container configuration
-  image:                    # Container image URL (Artifact Registry or GCR)
-  port:                    # Port for the container
-  env_vars:                         # Environment variables for the container
-    - name:                # Environment variable name
-      value:               # Environment variable value
+container: # Container configuration
+  image: # Container image URL (Artifact Registry or GCR)
+  port: # Port for the container
+  env_vars: # Environment variables for the container
+    - name: # Environment variable name
+      value: # Environment variable value
+  resources:
+    cpu: # CPU resource limit
+    memory: # Memory resource limit
+  scaling:
+    min_instances: # Minimum number of instances
+    max_instances: # Maximum number of instances
+    target_cpu_utilization: # Target CPU utilization
 
-traffic:                            # Traffic routing configuration
-  - tag:                    # Traffic tag (e.g., 'current', 'previous')
-    percent:               # Percentage of traffic routed to this tag
+traffic: # Traffic routing configuration
+  - tag: # Traffic tag (e.g., 'current', 'previous')
+    percent: # Percentage of traffic routed to this tag
 
-secrets:                            # Secrets management
-  - name:                  # Secret name
-    version:               # Version of the secret
-    mount_path:            # Path to mount the secret (optional)
+secrets: # Secrets management
+  - name: # Secret name
+    version: # Version of the secret
+    mount_path: # Path to mount the secret (optional)
 
-custom_domain:                      # Custom domain configuration
-  domain:                  # Custom domain (optional)
-  certificate:             # Certificate for HTTPS (optional)
+custom_domain: # Custom domain configuration
+  domain: # Custom domain (optional)
+  certificate: # Certificate for HTTPS (optional)

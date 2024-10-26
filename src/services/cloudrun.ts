@@ -1,6 +1,7 @@
 import { ServicesClient } from "@google-cloud/run";
 import { CloudRunConfig } from "../config/parser";
 import { env, exit } from "process";
+import ora from "ora";
 
 export class CloudRunService {
   private client: ServicesClient;
@@ -9,10 +10,74 @@ export class CloudRunService {
     this.client = new ServicesClient();
   }
 
+  async allowUnauthenticated(servicePath: string) {
+    const policy = {
+      bindings: [
+        {
+          role: "roles/run.invoker",
+          members: ["allUsers"],
+        },
+      ],
+    };
+    try {
+      await this.client.setIamPolicy({
+        resource: servicePath,
+        policy,
+      });
+      console.log("Allowed unauthenticated access to service");
+    } catch (error) {
+      console.error("Error setting IAM policy:", error);
+      throw error;
+    }
+  }
+
+  private validateResourceConfig(config: CloudRunConfig) {
+    // Validate CPU format
+    const cpuPattern = /^(\d+(\.\d+)?|(\d+m))$/;
+    if (!cpuPattern.test(config.container.resources.cpu)) {
+      throw new Error(
+        'Invalid CPU format. Must be a number or a millicpu value (e.g., "1" or "1000m")',
+      );
+    }
+
+    // Validate memory format
+    const memoryPattern = /^\d+[KMGTPEZYkmgtpezy]i?[Bb]?$/;
+    if (!memoryPattern.test(config.container.resources.memory)) {
+      throw new Error(
+        'Invalid memory format. Must be a number followed by a unit (e.g., "256Mi", "1Gi")',
+      );
+    }
+
+    // Validate scaling configuration
+    if (config.container.scaling.min_instances < 0) {
+      throw new Error("Minimum instances cannot be negative");
+    }
+
+    if (
+      config.container.scaling.max_instances <
+      config.container.scaling.min_instances
+    ) {
+      throw new Error(
+        "Maximum instances must be greater than or equal to minimum instances",
+      );
+    }
+
+    if (
+      config.container.scaling.concurrency < 1 ||
+      config.container.scaling.concurrency > 1000
+    ) {
+      throw new Error("Concurrency must be between 1 and 1000");
+    }
+  }
+
   async deploy(config: CloudRunConfig) {
+    this.validateResourceConfig(config);
+
     const serviceName = config.service.name;
     const projectId = config.project_id;
     const region = config.region;
+    const location = `projects/${projectId}/locations/${region}`;
+    const servicePath = `${location}/services/${serviceName}`;
 
     // Validate the service name
     if (!/^[a-z][a-z0-9-]{0,48}[a-z0-9]$/.test(serviceName)) {
@@ -36,22 +101,19 @@ export class CloudRunService {
     const envVars = Array.isArray(config.container.env_vars)
       ? config.container.env_vars
       : [];
-    const t = envVars.length > 0 && {
-      env: envVars.map((envVar) => ({
-        name: envVar.name,
-        value: envVar.value,
-      })),
-    };
-    console.log(t);
-    // process.exit(0)
 
-    // Construct the service object
     const service = {
       template: {
         containers: [
           {
             image: config.container.image,
             ports: [{ containerPort: config.container.port }],
+            resource: {
+              limits: {
+                cpu: config.container.resources.cpu,
+                memory: config.container.resources.memory,
+              },
+            },
             ...(envVars.length > 0 && {
               env: envVars.map((envVar) => ({
                 name: envVar.name,
@@ -60,14 +122,23 @@ export class CloudRunService {
             }),
           },
         ],
+        scaling: {
+          min_instances_count: config.container.scaling.min_instances,
+          max_instances_count: config.container.scaling.max_instances,
+        },
         service_account: config.service.service_account,
       },
       // traffic: config.traffic
-      invoker_iam_disabled: true,
+      template_annotations: {
+        "autoscaling.knative.dev/minScale": `${config.container.scaling.min_instances}`,
+        "autoscaling.knative.dev/maxScale": `${config.container.scaling.max_instances}`,
+        "run.googleapis.com/cpu-throttling": "false",
+        "run.googleapis.com/containerConcurrency": `${config.container.scaling.concurrency}`,
+      },
     };
 
     // Log the service object before creating
-    console.log("Service object:", service);
+    // console.log("Service object:", service);
 
     try {
       // Initiate the service creation
@@ -77,45 +148,59 @@ export class CloudRunService {
         service, // Pass the service object
       });
       console.log(`Service ${serviceName} creation initiated:`);
-
       // Polling logic to wait for service creation
       let serviceDetails: any;
       let status = "UNKNOWN";
-      const maxRetries = 10; // Max number of polling attempts
-      const retryDelay = 5000; // 5 seconds delay between retries
 
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-          // Fetch the service details
-          [serviceDetails] = await this.client.getService({
-            name: `projects/${projectId}/locations/${region}/services/${serviceName}`,
-          });
-          console.log("ServiceDetails: ", serviceDetails);
-          status = serviceDetails.status.conditions?.[0]?.state || "UNKNOWN";
+      const POLLING_TIMEOUT = 10 * 60 * 1000; // 10 minutes in milliseconds
+      const POLLING_INTERVAL = 5000; // 5 seconds
 
-          // Check if the service is ready
-          if (status === "ACTIVE") {
-            console.log("Service is active and ready.");
-            break; // Exit the loop if the service is ready
-          } else {
-            console.log(
-              `Service status: ${status}. Waiting for service to become active...`,
-            );
-          }
-        } catch (fetchError) {
-          console.error(
-            `Error fetching service details: ${fetchError.message}`,
+      const startTime = Date.now();
+      const spinner = ora({
+        text: "Deploying service...",
+        spinner: "dots",
+      }).start();
+      while (true) {
+        if (Date.now() - startTime > POLLING_TIMEOUT) {
+          throw new Error(
+            `Service ${serviceName} deployment timed out after ${POLLING_TIMEOUT / 1000} seconds`,
           );
         }
 
-        // Wait for the retry delay before the next attempt
-        await new Promise((resolve) => setTimeout(resolve, retryDelay));
+        try {
+          [serviceDetails] = await this.client.getService({
+            name: `projects/${projectId}/locations/${region}/services/${serviceName}`,
+          });
+
+          if (!serviceDetails || !serviceDetails.conditions) {
+            spinner.text = "Waiting for service details to be available...";
+            await new Promise((resolve) =>
+              setTimeout(resolve, POLLING_INTERVAL),
+            );
+            continue;
+          }
+          const conditions = serviceDetails.conditions || [];
+          status = conditions[0]?.state || "UNKNOWN";
+
+          if (status === "CONDITION_SUCCEEDED") {
+            spinner.succeed("Service is active and ready!");
+            break;
+          } else {
+            spinner.text = `Service status: ${status}. Waiting for service to become active...`;
+          }
+        } catch (fetchError) {
+          spinner.fail(
+            `Error fetching service details: ${
+              fetchError instanceof Error ? fetchError.message : fetchError
+            }`,
+          );
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL));
       }
 
-      if (status !== "ACTIVE") {
-        throw new Error(
-          `Service ${serviceName} did not become active after ${maxRetries} retries.`,
-        );
+      if (config.service.allow_unauthenticated) {
+        await this.allowUnauthenticated(servicePath);
       }
 
       // If the service is ready, print the URL

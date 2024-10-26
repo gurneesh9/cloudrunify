@@ -2,7 +2,7 @@ version: 1.0
 project_id: "dev-project-id"   # GCP Project ID for the dev environment
 region: "us-central1"          # Default region for this environment
 
-service: 
+service:
   name: "dev-service"          # Cloud Run service name for dev
   allow_unauthenticated: true  # Enable unauthenticated access in dev
   service_account: "dev-service-account@project-id.iam.gserviceaccount.com"  # Service account for dev
@@ -10,9 +10,16 @@ service:
 container:
   image: "gcr.io/dev-project-id/dev-image:latest"  # Container image URL for dev
   port: 8080
-  env_vars:                 
+  env_vars:
     - name: "NODE_ENV"
       value: "development"     # Set environment variables for dev
+  resources:
+    cpu: "1"
+    memory: "256Mi"
+  scaling:
+    min_instances: 1
+    max_instances: 2
+    concurrency: 80
 
 traffic:
   - tag: "current"
