@@ -2,6 +2,9 @@ version: # Version of the YAML schema
 project_id: # GCP Project ID
 region: # Default region for the service
 
+auth:
+  service_account_key_path: # Path to service account key file
+
 service: # Service configuration
   name: # Cloud Run service name
   allow_unauthenticated: <boolean> # Whether to allow unauthenticated access

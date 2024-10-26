@@ -1,13 +1,25 @@
+import { GoogleAuth } from "google-auth-library";
+
 import { ServicesClient } from "@google-cloud/run";
 import { CloudRunConfig } from "../config/parser";
 import { env, exit } from "process";
 import ora from "ora";
 
+import * as fs from "fs";
+
 export class CloudRunService {
   private client: ServicesClient;
 
-  constructor() {
-    this.client = new ServicesClient();
+  constructor(keyFilePath?: string) {
+    if (keyFilePath) {
+      const auth = new GoogleAuth({
+        keyFilename: keyFilePath,
+        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+      });
+      this.client = new ServicesClient({ auth });
+    } else {
+      this.client = new ServicesClient();
+    }
   }
 
   async allowUnauthenticated(servicePath: string) {
@@ -34,7 +46,10 @@ export class CloudRunService {
   private validateResourceConfig(config: CloudRunConfig) {
     // Validate CPU format
     const cpuPattern = /^(\d+(\.\d+)?|(\d+m))$/;
-    if (!cpuPattern.test(config.container.resources.cpu)) {
+    if (
+      config.container.resources &&
+      !cpuPattern.test(config.container.resources.cpu)
+    ) {
       throw new Error(
         'Invalid CPU format. Must be a number or a millicpu value (e.g., "1" or "1000m")',
       );
@@ -42,20 +57,27 @@ export class CloudRunService {
 
     // Validate memory format
     const memoryPattern = /^\d+[KMGTPEZYkmgtpezy]i?[Bb]?$/;
-    if (!memoryPattern.test(config.container.resources.memory)) {
+    if (
+      config.container.resources &&
+      !memoryPattern.test(config.container.resources.memory)
+    ) {
       throw new Error(
         'Invalid memory format. Must be a number followed by a unit (e.g., "256Mi", "1Gi")',
       );
     }
 
     // Validate scaling configuration
-    if (config.container.scaling.min_instances < 0) {
+    if (
+      config.container.scaling &&
+      config.container.scaling.min_instances < 0
+    ) {
       throw new Error("Minimum instances cannot be negative");
     }
 
     if (
+      config.container.scaling &&
       config.container.scaling.max_instances <
-      config.container.scaling.min_instances
+        config.container.scaling.min_instances
     ) {
       throw new Error(
         "Maximum instances must be greater than or equal to minimum instances",
@@ -63,8 +85,8 @@ export class CloudRunService {
     }
 
     if (
-      config.container.scaling.concurrency < 1 ||
-      config.container.scaling.concurrency > 1000
+      (config.container.scaling && config.container.scaling.concurrency < 1) ||
+      (config.container.scaling && config.container.scaling.concurrency > 1000)
     ) {
       throw new Error("Concurrency must be between 1 and 1000");
     }
@@ -108,12 +130,14 @@ export class CloudRunService {
           {
             image: config.container.image,
             ports: [{ containerPort: config.container.port }],
-            resource: {
-              limits: {
-                cpu: config.container.resources.cpu,
-                memory: config.container.resources.memory,
+            ...(config.container.resources && {
+              resources: {
+                limits: {
+                  cpu: config.container.resources.cpu,
+                  memory: config.container.resources.memory,
+                },
               },
-            },
+            }),
             ...(envVars.length > 0 && {
               env: envVars.map((envVar) => ({
                 name: envVar.name,
@@ -122,19 +146,21 @@ export class CloudRunService {
             }),
           },
         ],
-        scaling: {
-          min_instances_count: config.container.scaling.min_instances,
-          max_instances_count: config.container.scaling.max_instances,
-        },
+        ...(config.container.scaling && {
+          scaling: {
+            min_instances_count: config.container.scaling.min_instances,
+            max_instances_count: config.container.scaling.max_instances,
+          },
+        }),
         service_account: config.service.service_account,
       },
       // traffic: config.traffic
-      template_annotations: {
-        "autoscaling.knative.dev/minScale": `${config.container.scaling.min_instances}`,
-        "autoscaling.knative.dev/maxScale": `${config.container.scaling.max_instances}`,
-        "run.googleapis.com/cpu-throttling": "false",
-        "run.googleapis.com/containerConcurrency": `${config.container.scaling.concurrency}`,
-      },
+      // template_annotations: {
+      //   "autoscaling.knative.dev/minScale": `${config.container.scaling.min_instances}`,
+      //   "autoscaling.knative.dev/maxScale": `${config.container.scaling.max_instances}`,
+      //   "run.googleapis.com/cpu-throttling": "false",
+      //   "run.googleapis.com/containerConcurrency": `${config.container.scaling.concurrency}`,
+      // },
     };
 
     // Log the service object before creating
@@ -142,12 +168,16 @@ export class CloudRunService {
 
     try {
       // Initiate the service creation
-      const response = await this.client.createService({
+      const response = this.client.createService({
         parent: `projects/${projectId}/locations/${region}`,
         serviceId: serviceName, // Set the serviceId here
-        service, // Pass the service object
+        service,
       });
       console.log(`Service ${serviceName} creation initiated:`);
+
+      // Add initial delay to allow service creation to start
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
       // Polling logic to wait for service creation
       let serviceDetails: any;
       let status = "UNKNOWN";

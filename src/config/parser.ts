@@ -2,6 +2,10 @@ import { parse, stringify } from "yaml";
 import { readFileSync } from "fs";
 
 export interface CloudRunConfig {
+  auth?: {
+    service_account_key_path?: string;
+    service_account_key?: string;
+  };
   version: string;
   project_id: string;
   region: string;
@@ -18,7 +22,7 @@ export interface CloudRunConfig {
       cpu: string;
       memory: string;
     };
-    scaling: {
+    scaling?: {
       min_instances: number;
       max_instances: number;
       concurrency: number;
@@ -38,7 +42,22 @@ export class ConfigParser {
     return parse(content) as CloudRunConfig;
   }
 
+  static validateServiceAccountKeyPath(config: CloudRunConfig): boolean {
+    if (config.auth?.service_account_key_path) {
+      if (!readFileSync(config.auth.service_account_key_path)) {
+        console.error("Service account key file not found");
+        return false;
+      }
+    }
+    return true;
+  }
+
   static validate(config: CloudRunConfig): boolean {
+    // Validate service account key if provided
+    if (!this.validateServiceAccountKeyPath(config)) {
+      return false;
+    }
+
     // Basic validation checks
     if (!config.version || !config.project_id || !config.region) {
       console.error("Missing required top-level fields");
