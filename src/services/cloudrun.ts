@@ -9,14 +9,33 @@ import * as fs from "fs";
 
 export class CloudRunService {
   private client: ServicesClient;
+  constructor(config: CloudRunConfig, credentialsPath?: string) {
+    if (credentialsPath) {
+      let credentials;
+      try {
+        if (credentialsPath === "json") {
+          // Use JSON string from environment variable
+          const jsonCreds = process.env.GOOGLE_CREDENTIALS;
+          if (!jsonCreds) {
+            throw new Error("GOOGLE_CREDENTIALS environment variable not found");
+          }
+          credentials = JSON.parse(jsonCreds);
+        } else {
+          console.log("BBBB ", credentialsPath);
+          // Use file path
+          const keyFileContent = fs.readFileSync(credentialsPath, "utf-8");
+          credentials = JSON.parse(keyFileContent);
+        }
 
-  constructor(keyFilePath?: string) {
-    if (keyFilePath) {
-      const auth = new GoogleAuth({
-        keyFilename: keyFilePath,
-        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-      });
-      this.client = new ServicesClient({ auth });
+        const auth = new GoogleAuth({
+          credentials,
+          scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+        });
+        this.client = new ServicesClient({ auth });
+      } catch (error) {
+        console.error("Error initializing authentication:", error);
+        throw error;
+      }
     } else {
       this.client = new ServicesClient();
     }
@@ -46,10 +65,7 @@ export class CloudRunService {
   private validateResourceConfig(config: CloudRunConfig) {
     // Validate CPU format
     const cpuPattern = /^(\d+(\.\d+)?|(\d+m))$/;
-    if (
-      config.container.resources &&
-      !cpuPattern.test(config.container.resources.cpu)
-    ) {
+    if (config.container.resources && !cpuPattern.test(config.container.resources.cpu)) {
       throw new Error(
         'Invalid CPU format. Must be a number or a millicpu value (e.g., "1" or "1000m")',
       );
@@ -57,31 +73,22 @@ export class CloudRunService {
 
     // Validate memory format
     const memoryPattern = /^\d+[KMGTPEZYkmgtpezy]i?[Bb]?$/;
-    if (
-      config.container.resources &&
-      !memoryPattern.test(config.container.resources.memory)
-    ) {
+    if (config.container.resources && !memoryPattern.test(config.container.resources.memory)) {
       throw new Error(
         'Invalid memory format. Must be a number followed by a unit (e.g., "256Mi", "1Gi")',
       );
     }
 
     // Validate scaling configuration
-    if (
-      config.container.scaling &&
-      config.container.scaling.min_instances < 0
-    ) {
+    if (config.container.scaling && config.container.scaling.min_instances < 0) {
       throw new Error("Minimum instances cannot be negative");
     }
 
     if (
       config.container.scaling &&
-      config.container.scaling.max_instances <
-        config.container.scaling.min_instances
+      config.container.scaling.max_instances < config.container.scaling.min_instances
     ) {
-      throw new Error(
-        "Maximum instances must be greater than or equal to minimum instances",
-      );
+      throw new Error("Maximum instances must be greater than or equal to minimum instances");
     }
 
     if (
@@ -109,20 +116,14 @@ export class CloudRunService {
     }
 
     // Validate container configuration
-    if (
-      !config.container ||
-      !config.container.image ||
-      !config.container.port
-    ) {
+    if (!config.container || !config.container.image || !config.container.port) {
       throw new Error(
         "Container configuration is invalid. Ensure that the image and port are specified.",
       );
     }
 
     // Ensure that the env_vars is defined and is an array
-    const envVars = Array.isArray(config.container.env_vars)
-      ? config.container.env_vars
-      : [];
+    const envVars = Array.isArray(config.container.env_vars) ? config.container.env_vars : [];
 
     const service = {
       template: {
@@ -152,7 +153,9 @@ export class CloudRunService {
             max_instances_count: config.container.scaling.max_instances,
           },
         }),
-        service_account: config.service.service_account,
+        ...(config.service.service_account && {
+          service_account: config.service.service_account,
+        }),
       },
       // traffic: config.traffic
       // template_annotations: {
@@ -204,9 +207,7 @@ export class CloudRunService {
 
           if (!serviceDetails || !serviceDetails.conditions) {
             spinner.text = "Waiting for service details to be available...";
-            await new Promise((resolve) =>
-              setTimeout(resolve, POLLING_INTERVAL),
-            );
+            await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL));
             continue;
           }
           const conditions = serviceDetails.conditions || [];

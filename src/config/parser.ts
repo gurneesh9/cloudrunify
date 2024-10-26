@@ -1,18 +1,13 @@
 import { parse, stringify } from "yaml";
 import { readFileSync } from "fs";
-
 export interface CloudRunConfig {
-  auth?: {
-    service_account_key_path?: string;
-    service_account_key?: string;
-  };
   version: string;
   project_id: string;
   region: string;
   service: {
     name: string;
     allow_unauthenticated: boolean;
-    service_account: string;
+    service_account?: string;
   };
   container: {
     image: string;
@@ -42,22 +37,7 @@ export class ConfigParser {
     return parse(content) as CloudRunConfig;
   }
 
-  static validateServiceAccountKeyPath(config: CloudRunConfig): boolean {
-    if (config.auth?.service_account_key_path) {
-      if (!readFileSync(config.auth.service_account_key_path)) {
-        console.error("Service account key file not found");
-        return false;
-      }
-    }
-    return true;
-  }
-
   static validate(config: CloudRunConfig): boolean {
-    // Validate service account key if provided
-    if (!this.validateServiceAccountKeyPath(config)) {
-      return false;
-    }
-
     // Basic validation checks
     if (!config.version || !config.project_id || !config.region) {
       console.error("Missing required top-level fields");
@@ -65,10 +45,7 @@ export class ConfigParser {
     }
 
     // Service validation
-    if (
-      !config.service?.name ||
-      typeof config.service.allow_unauthenticated !== "boolean"
-    ) {
+    if (!config.service?.name || typeof config.service.allow_unauthenticated !== "boolean") {
       console.error("Invalid service configuration");
       return false;
     }
@@ -80,10 +57,7 @@ export class ConfigParser {
     }
 
     // Resources validation
-    if (
-      !config.container.resources?.cpu ||
-      !config.container.resources?.memory
-    ) {
+    if (!config.container.resources?.cpu || !config.container.resources?.memory) {
       console.error("Invalid resources configuration");
       return false;
     }
@@ -101,9 +75,7 @@ export class ConfigParser {
     // Traffic validation
     if (
       !Array.isArray(config.traffic) ||
-      !config.traffic.every(
-        (t) => typeof t.tag === "string" && typeof t.percent === "number",
-      )
+      !config.traffic.every((t) => typeof t.tag === "string" && typeof t.percent === "number")
     ) {
       console.error("Invalid traffic configuration");
       return false;
