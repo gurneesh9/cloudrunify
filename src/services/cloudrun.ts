@@ -219,12 +219,15 @@ export class CloudRunService {
           } else {
             spinner.text = `Service status: ${status}. Waiting for service to become active...`;
           }
-        } catch (fetchError) {
-          spinner.fail(
-            `Error fetching service details: ${
-              fetchError instanceof Error ? fetchError.message : fetchError
-            }`,
-          );
+        } catch (error) {
+          // Handle gRPC errors more gracefully
+          if (error.code) {
+            spinner.fail("Deployment failed");
+            const errorMessage = this.formatError(error);
+            throw new Error(errorMessage);
+          }
+          spinner.fail(`Error fetching service details: ${error.message}`);
+          throw error;
         }
 
         await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL));
@@ -240,6 +243,19 @@ export class CloudRunService {
       console.error("Error deploying service:", error);
       throw error;
     }
+  }
+
+  private formatError(error: any): string {
+    // If we have a structured error with code and details
+    if (error.code && error.details) {
+      return `Error (${error.code}): ${error.details}`;
+    }
+    // If we have a message
+    if (error.message) {
+      return error.message;
+    }
+    // Fallback for unknown error formats
+    return `Deployment failed: ${JSON.stringify(error)}`;
   }
 
   // TODO: Will add rollback later
