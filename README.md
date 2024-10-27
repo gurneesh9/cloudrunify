@@ -112,3 +112,39 @@ Create a comprehensive, user-friendly tool that enables declarative deployments 
 ## 11. Conclusion
 
 CloudRunify aims to significantly improve the developer experience, streamline deployments, and bring the simplicity of tools like Wrangler to the Cloud Run ecosystem. By focusing on user needs and leveraging the power of declarative configurations, we can create a valuable asset for the Google Cloud community.
+
+---
+# Example Usage Github Actions
+
+* Save service account secret in GOOGLE_CREDENTIALS
+
+name: CloudRunify Deployment
+
+on:
+  push:
+    branches:
+      - main  # Change to the branch you want to trigger the deployment
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+      - name: Set Google Cloud Project
+        run: |
+          gcloud config set project scrape-429402
+          curl -L -o cloudrunify.cjs "https://github.com/gurneesh9/cloudrunify/releases/download/v0.0.1/cloudrunify.cjs"
+          node cloudrunify.cjs deploy
+
+# Example usage local
+* Download cloudrunify.cjs
+* cp cloudrunify.cjs /usr/local/bin/cloudrunify
+* cloudrunify init / package / deploy
