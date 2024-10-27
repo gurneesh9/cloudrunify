@@ -151,3 +151,8 @@ jobs:
 * Download cloudrunify.cjs
 * cp cloudrunify.cjs /usr/local/bin/cloudrunify
 * cloudrunify init / package / deploy
+
+* Eample YAML for simple service deployment
+<img width="1002" alt="Screenshot 2024-10-26 at 11 31 40 PM" src="https://github.com/user-attachments/assets/254a8d6c-dec2-4321-8838-91997d74086a">
+
+
