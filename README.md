@@ -144,6 +144,9 @@ jobs:
           curl -L -o cloudrunify.cjs "https://github.com/gurneesh9/cloudrunify/releases/download/v0.0.1/cloudrunify.cjs"
           node cloudrunify.cjs deploy
 
+<img width="1111" alt="Screenshot 2024-10-26 at 11 20 20 PM" src="https://github.com/user-attachments/assets/11eeee41-5ca7-42ef-a3a1-1db550a6ae52">
+
+
 # Example usage local
 * Download cloudrunify.cjs
 * cp cloudrunify.cjs /usr/local/bin/cloudrunify
