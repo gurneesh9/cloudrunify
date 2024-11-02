@@ -60,8 +60,6 @@ export function createSecretsCommand(): Command {
     .command("list")
     .description("list all secret")
     .requiredOption("-p, --project <projectId>", "Google Cloud Project ID")
-    .requiredOption("-n, --name <secretName>", "Secret Name")
-    .requiredOption("-r, --region <region>", "Region", "us-central1")
     .option("-k, --key <path>", "Path to service account key file or 'json' for GitHub Actions")
     .action(async (options) => {
       const service = new SecretsManagerService(options.project, options.key);
