@@ -1,14 +1,21 @@
 import { GoogleAuth } from "google-auth-library";
 
-import { ServicesClient } from "@google-cloud/run";
+import { ServicesClient, RevisionsClient } from "@google-cloud/run";
 import { CloudRunConfig } from "../config/parser";
 import { env, exit } from "process";
 import ora from "ora";
 
 import * as fs from "fs";
 
+interface IRevisionScaling {
+  minInstanceCount?: number;
+  maxInstanceCount?: number;
+  concurrency?: number;
+}
+
 export class CloudRunService {
   private client: ServicesClient;
+  private revisionsClient: RevisionsClient;
   constructor(config: CloudRunConfig, credentialsPath?: string) {
     if (credentialsPath) {
       let credentials;
@@ -32,12 +39,14 @@ export class CloudRunService {
           scopes: ["https://www.googleapis.com/auth/cloud-platform"],
         });
         this.client = new ServicesClient({ auth });
+        this.revisionsClient = new RevisionsClient({ auth });
       } catch (error) {
         console.error("Error initializing authentication:", error);
         throw error;
       }
     } else {
       this.client = new ServicesClient();
+      this.revisionsClient = new RevisionsClient();
     }
   }
 
@@ -124,6 +133,7 @@ export class CloudRunService {
 
     // Ensure that the env_vars is defined and is an array
     const envVars = Array.isArray(config.container.env_vars) ? config.container.env_vars : [];
+    const secrets = config.secrets || [];
 
     const service = {
       template: {
@@ -145,48 +155,40 @@ export class CloudRunService {
                 value: envVar.value,
               })),
             }),
+            ...(secrets.length > 0 && {
+              volumeMounts: this.createVolumeMounts(secrets),
+            }),
           },
         ],
         ...(config.container.scaling && {
           scaling: {
-            min_instances_count: config.container.scaling.min_instances,
-            max_instances_count: config.container.scaling.max_instances,
-          },
+            minInstanceCount: config.container.scaling.min_instances,
+            maxInstanceCount: config.container.scaling.max_instances,
+            concurrency: config.container.scaling.concurrency,
+          } as IRevisionScaling,
         }),
         ...(config.service.service_account && {
-          service_account: config.service.service_account,
+          serviceAccount: config.service.service_account,
         }),
+        volumes: this.createVolumes(secrets),
       },
-      // traffic: config.traffic
-      // template_annotations: {
-      //   "autoscaling.knative.dev/minScale": `${config.container.scaling.min_instances}`,
-      //   "autoscaling.knative.dev/maxScale": `${config.container.scaling.max_instances}`,
-      //   "run.googleapis.com/cpu-throttling": "false",
-      //   "run.googleapis.com/containerConcurrency": `${config.container.scaling.concurrency}`,
-      // },
     };
 
-    // Log the service object before creating
-    // console.log("Service object:", service);
-
     try {
-      // Initiate the service creation
-      const response = this.client.createService({
+      const response = await this.client.createService({
         parent: `projects/${projectId}/locations/${region}`,
-        serviceId: serviceName, // Set the serviceId here
+        serviceId: serviceName,
         service,
       });
       console.log(`Service ${serviceName} creation initiated:`);
 
-      // Add initial delay to allow service creation to start
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
-      // Polling logic to wait for service creation
       let serviceDetails: any;
       let status = "UNKNOWN";
 
-      const POLLING_TIMEOUT = 10 * 60 * 1000; // 10 minutes in milliseconds
-      const POLLING_INTERVAL = 5000; // 5 seconds
+      const POLLING_TIMEOUT = 10 * 60 * 1000;
+      const POLLING_INTERVAL = 5000;
 
       const startTime = Date.now();
       const spinner = ora({
@@ -220,7 +222,6 @@ export class CloudRunService {
             spinner.text = `Service status: ${status}. Waiting for service to become active...`;
           }
         } catch (error) {
-          // Handle gRPC errors more gracefully
           if (error.code) {
             spinner.fail("Deployment failed");
             const errorMessage = this.formatError(error);
@@ -237,7 +238,6 @@ export class CloudRunService {
         await this.allowUnauthenticated(servicePath);
       }
 
-      // If the service is ready, print the URL
       console.log("Service URL: ", serviceDetails.uri);
     } catch (error) {
       console.error("Error deploying service:", error);
@@ -245,51 +245,74 @@ export class CloudRunService {
     }
   }
 
+  private createVolumeMounts(secrets: Array<{ name: string; version: string; mount_path?: string }>): any[] {
+    return secrets.map((secret) => ({
+      name: secret.name,
+      mountPath: secret.mount_path || `/secrets/${secret.name}`,
+      readOnly: true,
+    }));
+  }
+
+  private createVolumes(secrets: Array<{ name: string; version: string; mount_path?: string }>): any[] {
+    return secrets.map((secret) => ({
+      name: secret.name.replace(/[^a-zA-Z0-9_-]/g, "_"), //sanitize secret name
+      secret: {
+        secret: secret.name.replace(/[^a-zA-Z0-9_-]/g, "_"), //sanitize secret name
+      },
+    }));
+  }
+
   private formatError(error: any): string {
-    // If we have a structured error with code and details
     if (error.code && error.details) {
       return `Error (${error.code}): ${error.details}`;
     }
-    // If we have a message
     if (error.message) {
       return error.message;
     }
-    // Fallback for unknown error formats
     return `Deployment failed: ${JSON.stringify(error)}`;
   }
 
-  // TODO: Will add rollback later
-  // async rollback(serviceName: string, version: string) {
-  //   const projectId = 'your-project-id'; // Replace with your project ID
-  //   const region = 'your-region'; // Replace with your region
+  async getRevisions(config: CloudRunConfig): Promise<string[]> {
+    const projectId = config.project_id;
+    const region = config.region;
+    const serviceName = config.service.name;
+    const request = {
+      parent: `projects/${projectId}/locations/${region}/services/${serviceName}`,
+    };
 
-  //   try {
-  //     const response = await this.client.updateService({
-  //       service: {
-  //         // Cloud Run service object to be updated
-  //         name: serviceName,
-  //         traffic: [
-  //           {
-  //             revision: version, // Specify the revision to roll back to
-  //             percent: 100,      // Set traffic to this revision
-  //           },
-  //         ],
-  //       },
-  //       // Instead of name, use the parent property
-  //       // Here’s the correct way to reference the service
-  //       // The name is actually constructed in the `parent` field
-  //       // Make sure the service is correctly referenced
-  //       // 'service' should not have a name property; use `name` as the parent parameter
-  //       // e.g., projects/{project}/locations/{location}/services/{service}
-  //       name: `projects/${projectId}/locations/${region}/services/${serviceName}`,
-  //     });
+    try {
+      const [revisions] = await this.revisionsClient.listRevisions(request);
+      return revisions.map((revision) => revision.name);
+    } catch (error) {
+      console.error("Error fetching service revisions:", error);
+      throw error;
+    }
+  }
 
-  //     console.log(`Service ${serviceName} rolled back to version ${version}:`, response);
-  //   } catch (error) {
-  //     console.error('Error during rollback:', error);
-  //     throw error;
-  //   }
-  // }
+  async rollback(config: CloudRunConfig, revision: string) {
+    const projectId = config.project_id;
+    const region = config.region;
+    const serviceName = config.service.name;
+
+    try {
+      const response = await this.client.updateService({
+        service: {
+          name: `projects/${projectId}/locations/${region}/services/${serviceName}`,
+          traffic: [
+            {
+              revision: revision,
+              percent: 100,
+            },
+          ],
+        },
+      });
+
+      console.log(`Service ${serviceName} rolled back to revision ${revision}:`, response);
+    } catch (error) {
+      console.error("Error during rollback:", error);
+      throw error;
+    }
+  }
 
   async getStatus(config: CloudRunConfig) {
     const projectId = config.project_id;

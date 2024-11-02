@@ -155,3 +155,85 @@ jobs:
 
 * Eample YAML for simple service deployment
 <img width="1002" alt="Screenshot 2024-10-26 at 11 31 40 PM" src="https://github.com/user-attachments/assets/254a8d6c-dec2-4321-8838-91997d74086a">
+
+### Secret Management
+
+CloudRunify provides commands to manage secrets in Google Cloud Secret Manager.  These secrets can then be used in your Cloud Run deployments.
+
+#### Create Secret
+
+```bash
+cloudrunify secret create -p [PROJECT_ID] -n [SECRET_NAME] -r [REGION] -k [KEY_FILE_PATH]
+```
+
+This command creates a new secret in Google Cloud Secret Manager.  It prompts you for the secret value.
+
+*   `-p, --project <projectId>`: Google Cloud Project ID (required)
+*   `-n, --name <secretName>`: Secret Name (required)
+*   `-r, --region <region>`: Region (required, defaults to us-central1)
+*   `-k, --key <path>`: Path to service account key file or 'json' for GitHub Actions (optional)
+
+#### Delete Secret
+
+```bash
+cloudrunify secret delete -p [PROJECT_ID] -n [SECRET_NAME] -r [REGION] -k [KEY_FILE_PATH]
+```
+
+This command deletes a secret from Google Cloud Secret Manager. It prompts for confirmation.
+
+*   `-p, --project <projectId>`: Google Cloud Project ID (required)
+*   `-n, --name <secretName>`: Secret Name (required)
+*   `-r, --region <region>`: Region (required, defaults to us-central1)
+*   `-k, --key <path>`: Path to service account key file or 'json' for GitHub Actions (optional)
+
+#### List Secrets
+
+```bash
+cloudrunify secret list -p [PROJECT_ID] -k [KEY_FILE_PATH]
+```
+
+This command lists all secrets in the specified project.
+
+*   `-p, --project <projectId>`: Google Cloud Project ID (required)
+*   `-k, --key <path>`: Path to service account key file or 'json' for GitHub Actions (optional)
+
+
+### Using Secrets with Cloud Run Deployments
+
+To use secrets in your Cloud Run deployments, add a `secrets` section to your `cloudrun.yaml` file:
+
+```yaml
+version: "1.0"
+project_id: "your-project-id"
+region: "us-central1"
+service:
+  name: "your-service-name"
+  allow_unauthenticated: false
+container:
+  image: "your-image-name"
+  port: 8080
+  env_vars:
+    - name: MY_SECRET_ENV
+      value: "$(MY_SECRET)"
+  resources:
+    cpu: "1"
+    memory: "256Mi"
+  scaling:
+    min_instances: 1
+    max_instances: 2
+    concurrency: 100
+secrets:
+  - name: MY_SECRET
+    version: "1"
+    mount_path: "/secrets/my-secret"
+traffic:
+  - tag: "latest"
+    percent: 100
+```
+
+Remember to create the secret using the `secret create` command before deploying.  The `value` field in `env_vars` uses the syntax `$(SECRET_NAME)` to reference the secret.
+
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request.

@@ -1,35 +1,28 @@
-version: 1.0
-project_id: "dev-project-id"   # GCP Project ID for the dev environment
-region: "us-central1"          # Default region for this environment
-
+version: "1.0"
+project_id: "your-project-id"
+region: "us-central1"
 service:
-  name: "dev-service"          # Cloud Run service name for dev
-  allow_unauthenticated: true  # Enable unauthenticated access in dev
-  service_account: "dev-service-account@project-id.iam.gserviceaccount.com"  # Service account for dev
-
+  name: "your-service-name"
+  allow_unauthenticated: false
 container:
-  image: "gcr.io/dev-project-id/dev-image:latest"  # Container image URL for dev
+  image: "your-image-name"
   port: 8080
   env_vars:
-    - name: "NODE_ENV"
-      value: "development"     # Set environment variables for dev
+    - name: PORT
+      value: "8080"
+    - name: MY_SECRET_ENV
+      value: "$(MY_SECRET)"
   resources:
     cpu: "1"
     memory: "256Mi"
   scaling:
     min_instances: 1
     max_instances: 2
-    concurrency: 80
-
-traffic:
-  - tag: "current"
-    percent: 100
-
+    concurrency: 100
 secrets:
-  - name: "dev-secret"
-    version: "latest"
-    mount_path: "/secrets"
-
-custom_domain:
-  domain: "dev.example.com"    # Custom domain for dev environment
-  certificate: "dev-cert"
+  - name: MY_SECRET
+    version: "1"
+    mount_path: "/secrets/my-secret"
+traffic:
+  - tag: "latest"
+    percent: 100
