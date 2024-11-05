@@ -1,8 +1,9 @@
-import { Command } from "commander";
-import { ConfigParser } from "../config/parser";
-import { CloudRunService } from "../services/cloudrun";
-import { readFileSync, existsSync } from "fs";
-import inquirer from "inquirer";
+import { Command } from "npm:commander";
+import { ConfigParser } from "../config/parser.ts";
+import { CloudRunService } from "../services/cloudrun.ts";
+import { readFileSync, existsSync } from "node:fs";
+import inquirer from "npm:inquirer";
+import * as process from 'node:process'
 
 export function createDeployCommand(): Command {
   return new Command("deploy")

@@ -1,6 +1,6 @@
-import { Command } from 'commander';
-import { ConfigParser } from '../config/parser';
-import { CloudRunService } from '../services/cloudrun';
+import { Command } from 'npm:commander';
+import { CloudRunService } from '../services/cloudrun.ts';
+import { ConfigParser } from '../config/parser.ts';
 
 export function createDestroyCommand(): Command {
     return new Command('destroy')
@@ -8,7 +8,7 @@ export function createDestroyCommand(): Command {
         .option('-c, --config <path>', 'Configuration file path', 'cloudrun.yaml')
         .action(async (options) => {
             const config = ConfigParser.parse(options.config);
-            const service = new CloudRunService();
+            const service = new CloudRunService(config);
             await service.destroy(config);
         });
 }

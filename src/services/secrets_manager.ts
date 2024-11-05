@@ -1,7 +1,9 @@
-import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
-import inquirer from "inquirer";
-import { GoogleAuth } from "google-auth-library";
-import * as fs from "fs";
+import { SecretManagerServiceClient } from "npm:@google-cloud/secret-manager";
+import inquirer from "npm:inquirer";
+import { GoogleAuth } from "npm:google-auth-library";
+import * as fs from "node:fs";
+import * as process from "node:process"
+import { Buffer } from "node:buffer"
 
 export class SecretsManagerService {
   private client: SecretManagerServiceClient;

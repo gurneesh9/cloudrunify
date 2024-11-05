@@ -1,5 +1,5 @@
-import { parse, stringify } from "yaml";
-import { readFileSync } from "fs";
+import { parse, stringify } from "npm:yaml";
+import { readFileSync } from "node:fs";
 export interface CloudRunConfig {
   version: string;
   project_id: string;

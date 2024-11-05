@@ -1,7 +1,8 @@
-import { Command } from "commander";
-import { writeFile } from "fs/promises";
-import { join } from "path";
-import { existsSync } from "fs";
+import { Command } from "npm:commander";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { existsSync } from "node:fs";
+import * as process from "node:process"
 
 const DEFAULT_TEMPLATE = `
   version: # Version of the YAML schema

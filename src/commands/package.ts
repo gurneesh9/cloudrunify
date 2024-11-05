@@ -1,9 +1,10 @@
-import { Command } from 'commander';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { ConfigParser } from '../config/parser';
-import { existsSync } from 'fs';
-import { join } from 'path';
+import { Command } from 'npm:commander';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+import { ConfigParser } from '../config/parser.ts';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import * as process from 'node:process'
 
 const execPromise = promisify(exec);
 

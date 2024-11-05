@@ -1,11 +1,11 @@
-import { GoogleAuth } from "google-auth-library";
+import { GoogleAuth } from "npm:google-auth-library";
 
-import { ServicesClient, RevisionsClient } from "@google-cloud/run";
-import { CloudRunConfig } from "../config/parser";
-import { env, exit } from "process";
-import ora from "ora";
+import { ServicesClient, RevisionsClient } from "npm:@google-cloud/run";
+import { CloudRunConfig } from "../config/parser.ts";
+import * as process from "node:process"
+import ora from "npm:ora";
 
-import * as fs from "fs";
+import * as fs from "node:fs";
 
 interface IRevisionScaling {
   minInstanceCount?: number;
@@ -40,7 +40,7 @@ export class CloudRunService {
         });
         this.client = new ServicesClient({ auth });
         this.revisionsClient = new RevisionsClient({ auth });
-      } catch (error) {
+      } catch (error: unknown) {
         console.error("Error initializing authentication:", error);
         throw error;
       }
@@ -65,7 +65,7 @@ export class CloudRunService {
         policy,
       });
       console.log("Allowed unauthenticated access to service");
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error setting IAM policy:", error);
       throw error;
     }
@@ -197,9 +197,16 @@ export class CloudRunService {
       }).start();
       while (true) {
         if (Date.now() - startTime > POLLING_TIMEOUT) {
-          throw new Error(
-            `Service ${serviceName} deployment timed out after ${POLLING_TIMEOUT / 1000} seconds`,
-          );
+          let errorMessage = `Service ${serviceName} deployment timed out after ${POLLING_TIMEOUT / 1000} seconds`;
+          if (serviceDetails && serviceDetails.conditions) {
+            const conditions = serviceDetails.conditions;
+            const lastCondition = conditions[conditions.length -1];
+            errorMessage += `\nLast known status: ${lastCondition.state}`;
+            if (lastCondition.message) {
+              errorMessage += `\nMessage: ${lastCondition.message}`;
+            }
+          }
+          throw new Error(errorMessage);
         }
 
         try {
@@ -221,13 +228,13 @@ export class CloudRunService {
           } else {
             spinner.text = `Service status: ${status}. Waiting for service to become active...`;
           }
-        } catch (error) {
-          if (error.code) {
+        } catch (error: unknown) {
+          if (error instanceof Error && error.message) {
             spinner.fail("Deployment failed");
             const errorMessage = this.formatError(error);
             throw new Error(errorMessage);
           }
-          spinner.fail(`Error fetching service details: ${error.message}`);
+          spinner.fail(`Error fetching service details: ${error}`);
           throw error;
         }
 
@@ -239,7 +246,7 @@ export class CloudRunService {
       }
 
       console.log("Service URL: ", serviceDetails.uri);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error deploying service:", error);
       throw error;
     }
@@ -282,8 +289,9 @@ export class CloudRunService {
 
     try {
       const [revisions] = await this.revisionsClient.listRevisions(request);
+      //@ts-ignore
       return revisions.map((revision) => revision.name);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error fetching service revisions:", error);
       throw error;
     }
@@ -308,7 +316,7 @@ export class CloudRunService {
       });
 
       console.log(`Service ${serviceName} rolled back to revision ${revision}:`, response);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error during rollback:", error);
       throw error;
     }
@@ -325,7 +333,7 @@ export class CloudRunService {
       });
       console.log(`Status of service ${serviceName}:`, response);
       return response;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error fetching service status:", error);
       throw error;
     }
@@ -341,7 +349,7 @@ export class CloudRunService {
         name: `projects/${projectId}/locations/${region}/services/${serviceName}`,
       });
       console.log(`Service ${serviceName} deleted successfully.`);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error deleting service:", error);
       throw error;
     }
