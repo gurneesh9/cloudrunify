@@ -1,4 +1,4 @@
-Made with ❤️ using TypeScript and Bun by [Gurneesh](https://github.com/gurneesh9)
+Made with ❤️ using TypeScript and Deno by [Gurneesh](https://github.com/gurneesh9)
 # Vision: CloudRunify - Declarative Deployment Tool for Google Cloud Run
 
 ## 1. Problem Statement
