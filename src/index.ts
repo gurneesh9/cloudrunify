@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
-import { Command } from 'commander';
-import { createDeployCommand } from './commands/deploy';
-import { createInitCommand } from './commands/init';
-import { createPackageCommand } from './commands/package';
-import { createDestroyCommand } from './commands/destory';
-import { createSecretsCommand } from './commands/secrets';
+import { Command } from 'npm:commander';
+import { createDeployCommand } from './commands/deploy.ts';
+import { createInitCommand } from './commands/init.ts';
+import { createPackageCommand } from './commands/package.ts';
+import { createDestroyCommand } from './commands/destory.ts';
+import { createSecretsCommand } from './commands/secrets.ts';
 
 const VERSION = '0.0.1'
 const program = new Command();

@@ -1,6 +1,7 @@
-import { Command } from "commander";
-import { SecretsManagerService } from "../services/secrets_manager";
-import * as fs from "fs";
+import { Command } from "npm:commander";
+import { SecretsManagerService } from "../services/secrets_manager.ts";
+import * as fs from "node:fs";
+import * as process from "node:process"
 
 export function createSecretsCommand(): Command {
   const secretsCommand = new Command("secret")
@@ -11,7 +12,8 @@ export function createSecretsCommand(): Command {
     .command("create")
     .description("Create a new secret")
     .requiredOption("-p, --project <projectId>", "Google Cloud Project ID")
-    .requiredOption("-n, --name <secretName>", "Secret Name", null, (value, previous) => {
+    // @ts-ignore
+    .requiredOption("-n, --name <secretName>", "Secret Name", null, (value: string, previous:string) => {
       if (previous) {
         return previous + ',' + value;
       }
