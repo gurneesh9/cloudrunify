@@ -76,7 +76,7 @@ export class CloudRunService {
   private validateResourceConfig(config: CloudRunConfig) {
     // Validate CPU format
     const cpuPattern = /^(\d+(\.\d+)?|(\d+m))$/;
-    if (config.container.resources && !cpuPattern.test(config.container.resources.cpu)) {
+    if (config.container.resources && !cpuPattern.test(config.container.resources.cpu as string)) {
       throw new Error(
         'Invalid CPU format. Must be a number or a millicpu value (e.g., "1" or "1000m")',
       );
@@ -84,7 +84,7 @@ export class CloudRunService {
 
     // Validate memory format
     const memoryPattern = /^\d+[KMGTPEZYkmgtpezy]i?[Bb]?$/;
-    if (config.container.resources && !memoryPattern.test(config.container.resources.memory)) {
+    if (config.container.resources && !memoryPattern.test(config.container.resources.memory as string)) {
       throw new Error(
         'Invalid memory format. Must be a number followed by a unit (e.g., "256Mi", "1Gi")',
       );
@@ -97,7 +97,7 @@ export class CloudRunService {
 
     if (
       config.container.scaling &&
-      config.container.scaling.max_instances < config.container.scaling.min_instances
+      config.container.scaling.max_instances < (config.container.scaling.min_instances || 0)
     ) {
       throw new Error("Maximum instances must be greater than or equal to minimum instances");
     }
@@ -319,7 +319,7 @@ export class CloudRunService {
             }
 
             const rules = forwardingRules.trim().split('\n');
-            const targetRule = rules.find(rule => rule.includes('test-lb') || rule.includes('http-proxy'));
+            const targetRule = rules.find((rule: string) => rule.includes('test-lb') || rule.includes('http-proxy'));
             
             if (!targetRule) {
                 throw new Error('Could not find appropriate forwarding rule');
@@ -337,7 +337,7 @@ export class CloudRunService {
             console.log(`Using proxy name: ${proxyName}`);
 
             // Get the URL map from the target proxy
-            const urlMapInfo = await this.executeCommand(`gcloud compute target-http-proxies describe ${proxyName} --format="get(urlMap)" --global`);
+            const urlMapInfo = await this.executeCommand(`gcloud compute target-http-proxies describe ${proxyName} --format="get(urlMap)" --global`) as string;
             console.log('URL Map Info:', urlMapInfo);
 
             const urlMapName = urlMapInfo.trim().split('/').pop();
@@ -372,9 +372,9 @@ export class CloudRunService {
             --ip-version=IPV4`);
 
         // Get the reserved IP address
-        const ipAddress = await this.executeCommand(`gcloud compute addresses describe ${ipAddressName} \
+        const ipAddress: string = await this.executeCommand(`gcloud compute addresses describe ${ipAddressName} \
             --global \
-            --format="get(address)"`);
+            --format="get(address)"`) as string;
         console.log(`Reserved IP address: ${ipAddress.trim()}`);
 
         // Create URL map
@@ -405,7 +405,7 @@ export class CloudRunService {
     console.log('Load balancer setup completed successfully.');
   }
 
-  private createVolumeMounts(secrets: Array<{ name: string; version: string; mount_path?: string }>): any[] {
+  private createVolumeMounts(secrets: Array<{ name: string; version: string; mount_path?: string }>): Array<{ name: string; mountPath: string; readOnly: boolean }> {
     return secrets.map((secret) => ({
       name: secret.name,
       mountPath: secret.mount_path || `/secrets/${secret.name}`,
@@ -413,7 +413,7 @@ export class CloudRunService {
     }));
   }
 
-  private createVolumeMountsFromVolumes(volumes: Array<{ name: string; path: string; type: string }>): any[] {
+  private createVolumeMountsFromVolumes(volumes: Array<{ name: string; path: string; type: string }>): Array<{ name: string; mountPath: string; readOnly: boolean }> {
     return volumes.map((volume) => ({
       name: volume.name,
       mountPath: volume.path,
@@ -421,7 +421,7 @@ export class CloudRunService {
     }));
   }
 
-  private createVolumes(secrets: Array<{ name: string; version: string; mount_path?: string }>, volumes: Array<{ name: string; path: string; type: string; bucket?: string }>): any[] {
+  private createVolumes(secrets: Array<{ name: string; version: string; mount_path?: string }>, volumes: Array<{ name: string; path: string; type: string; bucket?: string }>): Array<{ name: string; secret?: { secret: string }; gcs?: { bucket: string }; persistentVolumeClaim?: { claimName: string } }> {
     const secretVolumes = secrets.map((secret) => ({
       name: secret.name.replace(/[^a-zA-Z0-9_-]/g, "_"),
       secret: {
