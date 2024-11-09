@@ -23,12 +23,20 @@ export interface CloudRunConfig {
       concurrency: number;
     };
   };
-  traffic: Array<{ tag: string; percent: number }>;
   secrets: Array<{ name: string; version: string; mount_path?: string }>;
+  volumes?: Array<{ name: string; path: string; type: string; bucket?: string }>;
   custom_domain?: {
     domain: string;
     certificate: string;
   };
+  load_balancer?: {
+    name: string; // Name of the load balancer
+    backend_service?: {
+      name: string;
+      existing: boolean;
+    };
+  }; // New load balancer configuration
+  traffic?: Array<{ revision: string; percent: number; tag?: string }>; // New traffic configuration
 }
 
 export class ConfigParser {
@@ -75,7 +83,7 @@ export class ConfigParser {
     // Traffic validation
     if (
       !Array.isArray(config.traffic) ||
-      !config.traffic.every((t) => typeof t.tag === "string" && typeof t.percent === "number")
+      !config.traffic.every((t) => typeof t.revision === "string" && typeof t.percent === "number")
     ) {
       console.error("Invalid traffic configuration");
       return false;

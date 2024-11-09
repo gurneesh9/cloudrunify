@@ -1,6 +1,9 @@
 {
   "version": "4",
   "specifiers": {
+    "jsr:@std/assert@1": "1.0.6",
+    "jsr:@std/internal@^1.0.4": "1.0.4",
+    "npm:@google-cloud/compute@*": "4.7.0",
     "npm:@google-cloud/run@*": "1.4.0",
     "npm:@google-cloud/secret-manager@*": "5.6.0",
     "npm:@types/node@*": "22.5.4",
@@ -10,7 +13,24 @@
     "npm:ora@*": "8.1.1",
     "npm:yaml@*": "2.6.0"
   },
+  "jsr": {
+    "@std/assert@1.0.6": {
+      "integrity": "1904c05806a25d94fe791d6d883b685c9e2dcd60e4f9fc30f4fc5cf010c72207",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
+    "@std/internal@1.0.4": {
+      "integrity": "62e8e4911527e5e4f307741a795c0b0a9e6958d0b3790716ae71ce085f755422"
+    }
+  },
   "npm": {
+    "@google-cloud/compute@4.7.0": {
+      "integrity": "sha512-1UExR08o2XXKdOV8FIK6kcrNb65KVAnv045huJQV6OBiJ+uxubBWm4XxbPaWcT3TvvKGyYSMHG1Qx9/IiwpI1w==",
+      "dependencies": [
+        "google-gax"
+      ]
+    },
     "@google-cloud/run@1.4.0": {
       "integrity": "sha512-DQQBCdW4lweGn8pcs9dB9yLjgSrsesJ5ssoj53Ujs8FmBP2FQ7rFvriPJ7EbM2QPRFS5u/Sp8tAR0vAHOBf/iw==",
       "dependencies": [

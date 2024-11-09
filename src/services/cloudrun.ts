@@ -7,6 +7,8 @@ import ora from "npm:ora";
 
 import * as fs from "node:fs";
 
+import { exec } from "node:child_process";
+
 interface IRevisionScaling {
   minInstanceCount?: number;
   maxInstanceCount?: number;
@@ -114,6 +116,7 @@ export class CloudRunService {
     const serviceName = config.service.name;
     const projectId = config.project_id;
     const region = config.region;
+
     const location = `projects/${projectId}/locations/${region}`;
     const servicePath = `${location}/services/${serviceName}`;
 
@@ -131,9 +134,9 @@ export class CloudRunService {
       );
     }
 
-    // Ensure that the env_vars is defined and is an array
     const envVars = Array.isArray(config.container.env_vars) ? config.container.env_vars : [];
     const secrets = config.secrets || [];
+    const volumes = config.volumes || [];
 
     const service = {
       template: {
@@ -158,6 +161,12 @@ export class CloudRunService {
             ...(secrets.length > 0 && {
               volumeMounts: this.createVolumeMounts(secrets),
             }),
+            ...(volumes.length > 0 && {
+              volumeMounts: [
+                ...(this.createVolumeMounts(secrets)),
+                ...this.createVolumeMountsFromVolumes(volumes),
+              ],
+            }),
           },
         ],
         ...(config.container.scaling && {
@@ -170,12 +179,13 @@ export class CloudRunService {
         ...(config.service.service_account && {
           serviceAccount: config.service.service_account,
         }),
-        volumes: this.createVolumes(secrets),
+        volumes: this.createVolumes(secrets, volumes),
       },
+      traffic: this.createTrafficConfiguration(config.traffic || []),
     };
 
     try {
-      const response = await this.client.createService({
+      await this.client.createService({
         parent: `projects/${projectId}/locations/${region}`,
         serviceId: serviceName,
         service,
@@ -184,6 +194,7 @@ export class CloudRunService {
 
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
+      // deno-lint-ignore no-explicit-any
       let serviceDetails: any;
       let status = "UNKNOWN";
 
@@ -245,11 +256,153 @@ export class CloudRunService {
         await this.allowUnauthenticated(servicePath);
       }
 
+      // Configure load balancer if specified
+      if (config.load_balancer) {
+        
+        await this.setupLoadBalancer(
+          projectId, 
+          serviceName, 
+          region, 
+          config.load_balancer.backend_service?.name,
+          config.load_balancer.backend_service?.existing
+        );
+      }
+
       console.log("Service URL: ", serviceDetails.uri);
     } catch (error: unknown) {
       console.error("Error deploying service:", error);
       throw error;
     }
+  }
+
+  private async setupLoadBalancer(projectId: string, serviceName: string, region: string, backendServiceName?: string, existing?: boolean) {
+    const negName = `${serviceName}-neg`;
+    const newBackendServiceName = backendServiceName || `${serviceName}-backend-service`;
+
+    // Create Serverless NEG for the Cloud Run service
+    console.log(`Creating Serverless NEG for service: ${serviceName}...`);
+    await this.executeCommand(`gcloud compute network-endpoint-groups create ${negName} \
+        --region=${region} \
+        --network-endpoint-type=serverless \
+        --cloud-run-service=${serviceName}`);
+    console.log(`Serverless NEG ${negName} created successfully.`);
+
+    // Create backend service with EXTERNAL_MANAGED scheme
+    console.log(`Creating backend service: ${newBackendServiceName}...`);
+    await this.executeCommand(`gcloud compute backend-services create ${newBackendServiceName} \
+        --global \
+        --load-balancing-scheme=EXTERNAL_MANAGED \
+        --port-name=http \
+        --protocol=HTTP`);
+
+    // Add NEG to backend service
+    console.log(`Adding Serverless NEG to backend service...`);
+    await this.executeCommand(`gcloud compute backend-services add-backend ${newBackendServiceName} \
+        --global \
+        --network-endpoint-group=${negName} \
+        --network-endpoint-group-region=${region}`);
+
+    if (existing) {
+        console.log(`Adding new backend service to existing load balancer...`);
+        try {
+            // First, list all forwarding rules to see what's available
+            console.log('Listing all forwarding rules...');
+            const allForwardingRules = await this.executeCommand(`gcloud compute forwarding-rules list --format="table(name,target)"`);
+            console.log('Available forwarding rules:', allForwardingRules);
+
+            // Get the forwarding rule without filtering first
+            const forwardingRules: any = await this.executeCommand(`gcloud compute forwarding-rules list --format="get(name,target)"`);
+            console.log('Found forwarding rules:', forwardingRules);
+
+            if (!forwardingRules.trim()) {
+                throw new Error('No forwarding rules found');
+            }
+
+            const rules = forwardingRules.trim().split('\n');
+            const targetRule = rules.find(rule => rule.includes('test-lb') || rule.includes('http-proxy'));
+            
+            if (!targetRule) {
+                throw new Error('Could not find appropriate forwarding rule');
+            }
+
+            const [ruleName, targetProxy] = targetRule.split(/\s+/);
+            console.log(`Found rule: ${ruleName} with target: ${targetProxy}`);
+
+            if (!targetProxy) {
+                throw new Error('Could not find target proxy for the load balancer');
+            }
+
+            // Extract the proxy name from the full path
+            const proxyName = targetProxy.split('/').pop();
+            console.log(`Using proxy name: ${proxyName}`);
+
+            // Get the URL map from the target proxy
+            const urlMapInfo = await this.executeCommand(`gcloud compute target-http-proxies describe ${proxyName} --format="get(urlMap)" --global`);
+            console.log('URL Map Info:', urlMapInfo);
+
+            const urlMapName = urlMapInfo.trim().split('/').pop();
+            console.log(`Extracted URL map name: ${urlMapName}`);
+
+            if (!urlMapName) {
+                throw new Error('Could not find URL map for the load balancer');
+            }
+
+            // Update the URL map's default service
+            console.log(`Updating URL map ${urlMapName} with new backend service...`);
+            await this.executeCommand(`gcloud compute url-maps set-default-service ${urlMapName} \
+                --global \
+                --default-service=${newBackendServiceName}`);
+
+            console.log(`Backend service ${newBackendServiceName} set as default for load balancer successfully.`);
+        } catch (error) {
+            console.error('Error updating load balancer:', error);
+            throw error;
+        }
+    } else {
+        // Create new load balancer components
+        const urlMapName = `${serviceName}-url-map`;
+        const targetProxyName = `${serviceName}-target-proxy`;
+        const forwardingRuleName = `${serviceName}-forwarding-rule`;
+        const ipAddressName = `${serviceName}-ip`;
+
+        // Reserve a global static IP address
+        console.log(`Creating static IP address: ${ipAddressName}...`);
+        await this.executeCommand(`gcloud compute addresses create ${ipAddressName} \
+            --global \
+            --ip-version=IPV4`);
+
+        // Get the reserved IP address
+        const ipAddress = await this.executeCommand(`gcloud compute addresses describe ${ipAddressName} \
+            --global \
+            --format="get(address)"`);
+        console.log(`Reserved IP address: ${ipAddress.trim()}`);
+
+        // Create URL map
+        console.log(`Creating URL map: ${urlMapName}...`);
+        await this.executeCommand(`gcloud compute url-maps create ${urlMapName} \
+            --global \
+            --default-service=${newBackendServiceName}`);
+
+        // Create HTTP proxy
+        console.log(`Creating Target HTTP Proxy: ${targetProxyName}...`);
+        await this.executeCommand(`gcloud compute target-http-proxies create ${targetProxyName} \
+            --url-map=${urlMapName} \
+            --global`);
+
+        // Create forwarding rule with EXTERNAL_MANAGED scheme
+        console.log(`Creating Forwarding Rule: ${forwardingRuleName}...`);
+        await this.executeCommand(`gcloud compute forwarding-rules create ${forwardingRuleName} \
+            --load-balancing-scheme=EXTERNAL_MANAGED \
+            --network-tier=PREMIUM \
+            --address=${ipAddressName} \
+            --target-http-proxy=${targetProxyName} \
+            --global \
+            --ports=80`);
+
+        console.log(`New load balancer created successfully with IP: ${ipAddress.trim()}`);
+    }
+
+    console.log('Load balancer setup completed successfully.');
   }
 
   private createVolumeMounts(secrets: Array<{ name: string; version: string; mount_path?: string }>): any[] {
@@ -260,12 +413,48 @@ export class CloudRunService {
     }));
   }
 
-  private createVolumes(secrets: Array<{ name: string; version: string; mount_path?: string }>): any[] {
-    return secrets.map((secret) => ({
-      name: secret.name.replace(/[^a-zA-Z0-9_-]/g, "_"), //sanitize secret name
+  private createVolumeMountsFromVolumes(volumes: Array<{ name: string; path: string; type: string }>): any[] {
+    return volumes.map((volume) => ({
+      name: volume.name,
+      mountPath: volume.path,
+      readOnly: volume.type === 'read-only',
+    }));
+  }
+
+  private createVolumes(secrets: Array<{ name: string; version: string; mount_path?: string }>, volumes: Array<{ name: string; path: string; type: string; bucket?: string }>): any[] {
+    const secretVolumes = secrets.map((secret) => ({
+      name: secret.name.replace(/[^a-zA-Z0-9_-]/g, "_"),
       secret: {
-        secret: secret.name.replace(/[^a-zA-Z0-9_-]/g, "_"), //sanitize secret name
+        secret: secret.name.replace(/[^a-zA-Z0-9_-]/g, "_"),
       },
+    }));
+
+    const volumeDefinitions = volumes.map((volume) => {
+      if (volume.bucket) {
+        return {
+          name: volume.name,
+          gcs: {
+            bucket: volume.bucket,
+          },
+        };
+      } else {
+        return {
+          name: volume.name,
+          persistentVolumeClaim: {
+            claimName: volume.name,
+          },
+        };
+      }
+    });
+
+    return [...secretVolumes, ...volumeDefinitions];
+  }
+
+  private createTrafficConfiguration(traffic: Array<{ revision: string; percent: number; tag?: string }>): any[] {
+    return traffic.map((target) => ({
+      revision: target.revision,
+      percent: target.percent,
+      tag: target.tag,
     }));
   }
 
@@ -343,15 +532,120 @@ export class CloudRunService {
     const projectId = config.project_id;
     const serviceName = config.service.name;
     const region = config.region;
+    const negName = `${serviceName}-neg`;
+    const backendServiceName = config.load_balancer?.backend_service?.name || `${serviceName}-backend-service`;
 
     try {
-      await this.client.deleteService({
-        name: `projects/${projectId}/locations/${region}/services/${serviceName}`,
-      });
-      console.log(`Service ${serviceName} deleted successfully.`);
-    } catch (error: unknown) {
-      console.error("Error deleting service:", error);
-      throw error;
+        // First delete the Cloud Run service
+        console.log(`Deleting Cloud Run service ${serviceName}...`);
+        await this.client.deleteService({
+            name: `projects/${projectId}/locations/${region}/services/${serviceName}`,
+        });
+        console.log(`Service ${serviceName} deleted successfully.`);
+
+        // If load balancer was configured, clean up those resources
+        if (config.load_balancer) {
+            console.log('Cleaning up load balancer resources...');
+
+            // If this is a new load balancer (not existing), clean up all components
+            if (!config.load_balancer.backend_service?.existing) {
+                const urlMapName = `${serviceName}-url-map`;
+                const targetProxyName = `${serviceName}-target-proxy`;
+                const forwardingRuleName = `${serviceName}-forwarding-rule`;
+                const ipAddressName = `${serviceName}-ip`;
+
+                try {
+                    // Delete forwarding rule first
+                    console.log(`Deleting forwarding rule ${forwardingRuleName}...`);
+                    await this.executeCommand(`gcloud compute forwarding-rules delete ${forwardingRuleName} \
+                        --global \
+                        --quiet`);
+                } catch (error) {
+                    console.warn('Warning: Could not delete forwarding rule:', error);
+                }
+
+                try {
+                    // Delete target proxy
+                    console.log(`Deleting target proxy ${targetProxyName}...`);
+                    await this.executeCommand(`gcloud compute target-http-proxies delete ${targetProxyName} \
+                        --global \
+                        --quiet`);
+                } catch (error) {
+                    console.warn('Warning: Could not delete target proxy:', error);
+                }
+
+                try {
+                    // Delete URL map
+                    console.log(`Deleting URL map ${urlMapName}...`);
+                    await this.executeCommand(`gcloud compute url-maps delete ${urlMapName} \
+                        --global \
+                        --quiet`);
+                } catch (error) {
+                    console.warn('Warning: Could not delete URL map:', error);
+                }
+
+                try {
+                    // Delete static IP address
+                    console.log(`Deleting static IP address ${ipAddressName}...`);
+                    await this.executeCommand(`gcloud compute addresses delete ${ipAddressName} \
+                        --global \
+                        --quiet`);
+                } catch (error) {
+                    console.warn('Warning: Could not delete static IP address:', error);
+                }
+            }
+
+            // Remove the NEG from backend service
+            try {
+                console.log(`Removing NEG ${negName} from backend service...`);
+                await this.executeCommand(`gcloud compute backend-services remove-backend ${backendServiceName} \
+                    --global \
+                    --network-endpoint-group=${negName} \
+                    --network-endpoint-group-region=${region}`);
+            } catch (error) {
+                console.warn('Warning: Could not remove NEG from backend service:', error);
+            }
+
+            // Delete the NEG
+            try {
+                console.log(`Deleting NEG ${negName}...`);
+                await this.executeCommand(`gcloud compute network-endpoint-groups delete ${negName} \
+                    --region=${region} \
+                    --quiet`);
+            } catch (error) {
+                console.warn('Warning: Could not delete NEG:', error);
+            }
+
+            // Finally delete the backend service
+            if (!config.load_balancer.backend_service?.existing) {
+                try {
+                    console.log(`Deleting backend service ${backendServiceName}...`);
+                    await this.executeCommand(`gcloud compute backend-services delete ${backendServiceName} \
+                        --global \
+                        --quiet`);
+                } catch (error) {
+                    console.warn('Warning: Could not delete backend service:', error);
+                }
+            }
+        }
+
+        console.log('All resources cleaned up successfully.');
+    } catch (error) {
+        console.error("Error during cleanup:", error);
+        throw error;
     }
+  }
+
+  private executeCommand(command: string) {
+    return new Promise((resolve, reject) => {
+      exec(command, (error: any, stdout: string, stderr: string) => {
+        if (error) {
+          console.error(`Error executing command: ${command}`, error);
+          return reject(error);
+        }
+        console.log(`Command output: ${stdout}`);
+        resolve(stdout);
+      });
+    });
   }
 }

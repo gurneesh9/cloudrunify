@@ -21,6 +21,18 @@ container: # Container configuration
     max_instances: # Maximum number of instances
     target_cpu_utilization: # Target CPU utilization
 
+volumes: # Volumes configuration
+  - name: # Volume name
+    path: # Path to mount the volume
+    type: # Volume type (e.g., 'read-only')
+    bucket: # GCS bucket name (optional)
+
+load_balancer: # Load balancer configuration
+  name: my-load-balancer # Name of the load balancer (optional)
+  backend_service: # Backend service configuration
+    name: my-backend-service # Name of the backend service
+    existing: false # Set to true if using an existing backend service
+
 traffic: # Traffic routing configuration
   - tag: # Traffic tag (e.g., 'current', 'previous')
     percent: # Percentage of traffic routed to this tag
