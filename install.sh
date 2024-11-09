@@ -9,8 +9,15 @@ fi
 
 echo "Installing cloudrunify..."
 
-# Download the binary
-curl -L https://github.com/gurneesh9/cloudrunify/releases/download/v0.0.1/cloudrunify.cjs -o cloudrunify.cjs
+# Download the binary based on the OS architecture
+if [[ "$OSTYPE" == "darwin"* && "$(uname -m)" == "arm64" ]]; then
+    curl -L https://github.com/gurneesh9/cloudrunify/releases/download/v0.0.1/cr-mac-arm64 -o cloudrunify
+elif [[ "$OSTYPE" == "linux-gnu"* && "$(uname -m)" == "x86_64" ]]; then
+    curl -L https://github.com/gurneesh9/cloudrunify/releases/download/v0.0.1/cr-linux -o cloudrunify
+else
+    echo "Unsupported OS or architecture. Please use macOS ARM64 or Linux AMD64."
+    exit 1
+fi
 
 # Check if download was successful
 if [ $? -ne 0 ]; then
@@ -19,10 +26,10 @@ if [ $? -ne 0 ]; then
 fi
 
 # Make it executable
-chmod +x cloudrunify.cjs
+chmod +x cloudrunify
 
 # Move to /usr/local/bin (requires sudo)
-sudo mv cloudrunify.cjs /usr/local/bin/cloudrunify
+sudo mv cloudrunify /usr/local/bin/cloudrunify
 
 # Check if move was successful
 if [ $? -ne 0 ]; then
