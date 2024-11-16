@@ -184,95 +184,124 @@ export class CloudRunService {
       traffic: this.createTrafficConfiguration(config.traffic || []),
     };
 
+    // Check if the service already exists
     try {
-      await this.client.createService({
-        parent: `projects/${projectId}/locations/${region}`,
-        serviceId: serviceName,
-        service,
+      console.log(`Checking if service ${serviceName} exists...`);
+      const existingService = await this.client.getService({
+        name: `projects/${projectId}/locations/${region}/services/${serviceName}`,
       });
-      console.log(`Service ${serviceName} creation initiated:`);
+      console.log(`Service ${serviceName} already exists. Deploying a new revision.`);
+      
+      // Deploy a new revision
+      await this.client.updateService({
+        service: {
+          name: `projects/${projectId}/locations/${region}/services/${serviceName}`,
+          // Include the new revision details here
+          template: {
+            containers: [
+              {
+                image: config.container.image,
+                ports: [{ containerPort: config.container.port }],
+                // Add other necessary configurations for the revision
+              },
+            ],
+          },
+        },
+      });
+    } catch (error) {
+      // If the service does not exist, create it
+      if (error instanceof Error && (error as any).code === 5) {
+        console.log(`Service ${serviceName} does not exist. Creating a new service.`);
+        
+        // Create the new service
+        await this.client.createService({
+          parent: `projects/${projectId}/locations/${region}`,
+          serviceId: serviceName,
+          service,
+        });
+      } else {
+        // console.error("Error fetching service details:", error);
+        throw error; // Rethrow if it's not a 404 error
+      }
+    }
 
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
-      // deno-lint-ignore no-explicit-any
-      let serviceDetails: any;
-      let status = "UNKNOWN";
+    // deno-lint-ignore no-explicit-any
+    let serviceDetails: any;
+    let status = "UNKNOWN";
 
-      const POLLING_TIMEOUT = 10 * 60 * 1000;
-      const POLLING_INTERVAL = 5000;
+    const POLLING_TIMEOUT = 10 * 60 * 1000;
+    const POLLING_INTERVAL = 5000;
 
-      const startTime = Date.now();
-      const spinner = ora({
-        text: "Deploying service...",
-        spinner: "dots",
-      }).start();
-      while (true) {
-        if (Date.now() - startTime > POLLING_TIMEOUT) {
-          let errorMessage = `Service ${serviceName} deployment timed out after ${POLLING_TIMEOUT / 1000} seconds`;
-          if (serviceDetails && serviceDetails.conditions) {
-            const conditions = serviceDetails.conditions;
-            const lastCondition = conditions[conditions.length -1];
-            errorMessage += `\nLast known status: ${lastCondition.state}`;
-            if (lastCondition.message) {
-              errorMessage += `\nMessage: ${lastCondition.message}`;
-            }
+    const startTime = Date.now();
+    const spinner = ora({
+      text: "Deploying service...",
+      spinner: "dots",
+    }).start();
+    while (true) {
+      if (Date.now() - startTime > POLLING_TIMEOUT) {
+        let errorMessage = `Service ${serviceName} deployment timed out after ${POLLING_TIMEOUT / 1000} seconds`;
+        if (serviceDetails && serviceDetails.conditions) {
+          const conditions = serviceDetails.conditions;
+          const lastCondition = conditions[conditions.length -1];
+          errorMessage += `\nLast known status: ${lastCondition.state}`;
+          if (lastCondition.message) {
+            errorMessage += `\nMessage: ${lastCondition.message}`;
           }
+        }
+        throw new Error(errorMessage);
+      }
+
+      try {
+        [serviceDetails] = await this.client.getService({
+          name: `projects/${projectId}/locations/${region}/services/${serviceName}`,
+        });
+
+        if (!serviceDetails || !serviceDetails.conditions) {
+          spinner.text = "Waiting for service details to be available...";
+          await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL));
+          continue;
+        }
+        const conditions = serviceDetails.conditions || [];
+        status = conditions[0]?.state || "UNKNOWN";
+
+        if (status === "CONDITION_SUCCEEDED") {
+          spinner.succeed("Service is active and ready!");
+          break;
+        } else {
+          spinner.text = `Service status: ${status}. Waiting for service to become active...`;
+        }
+      } catch (error: unknown) {
+        if (error instanceof Error && error.message) {
+          spinner.fail("Deployment failed");
+          const errorMessage = this.formatError(error);
           throw new Error(errorMessage);
         }
-
-        try {
-          [serviceDetails] = await this.client.getService({
-            name: `projects/${projectId}/locations/${region}/services/${serviceName}`,
-          });
-
-          if (!serviceDetails || !serviceDetails.conditions) {
-            spinner.text = "Waiting for service details to be available...";
-            await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL));
-            continue;
-          }
-          const conditions = serviceDetails.conditions || [];
-          status = conditions[0]?.state || "UNKNOWN";
-
-          if (status === "CONDITION_SUCCEEDED") {
-            spinner.succeed("Service is active and ready!");
-            break;
-          } else {
-            spinner.text = `Service status: ${status}. Waiting for service to become active...`;
-          }
-        } catch (error: unknown) {
-          if (error instanceof Error && error.message) {
-            spinner.fail("Deployment failed");
-            const errorMessage = this.formatError(error);
-            throw new Error(errorMessage);
-          }
-          spinner.fail(`Error fetching service details: ${error}`);
-          throw error;
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL));
+        spinner.fail(`Error fetching service details: ${error}`);
+        throw error;
       }
 
-      if (config.service.allow_unauthenticated) {
-        await this.allowUnauthenticated(servicePath);
-      }
-
-      // Configure load balancer if specified
-      if (config.load_balancer) {
-        
-        await this.setupLoadBalancer(
-          projectId, 
-          serviceName, 
-          region, 
-          config.load_balancer.backend_service?.name,
-          config.load_balancer.backend_service?.existing
-        );
-      }
-
-      console.log("Service URL: ", serviceDetails.uri);
-    } catch (error: unknown) {
-      console.error("Error deploying service:", error);
-      throw error;
+      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL));
     }
+
+    if (config.service.allow_unauthenticated) {
+      await this.allowUnauthenticated(servicePath);
+    }
+
+    // Configure load balancer if specified
+    if (config.load_balancer) {
+      
+      await this.setupLoadBalancer(
+        projectId, 
+        serviceName, 
+        region, 
+        config.load_balancer.backend_service?.name,
+        config.load_balancer.backend_service?.existing
+      );
+    }
+
+    console.log("Service URL: ", serviceDetails.uri);
   }
 
   private async setupLoadBalancer(projectId: string, serviceName: string, region: string, backendServiceName?: string, existing?: boolean) {
