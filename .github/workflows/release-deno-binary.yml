@@ -31,10 +31,43 @@ jobs:
           ls -lh ./cr-linux # Confirm binary creation
 
       # Upload the binary to GitHub Release
-      - name: Upload to Release
+      - name: Get Release ID
+        id: get_release
+        run: |
+          response=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.ref_name }})
+          echo "Response: $response"
+          echo "::set-output name=id::$(echo "$response" | jq -r '.id')"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Delete the old binary asset if it exists
+      - name: Delete Existing Assets
+        if: steps.get_release.outputs.id != 'null'
+        run: |
+          release_id=${{ steps.get_release.outputs.id }}
+          assets=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/releases/$release_id | jq -r '.assets[] | .id')
+          for asset_id in $assets; do
+            echo "Deleting asset ID: $asset_id"
+            curl -X DELETE \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json" \
+              https://api.github.com/repos/${{ github.repository }}/releases/assets/$asset_id
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Upload the new binary to the release
+      - name: Upload New Binary to Release
         uses: softprops/action-gh-release@v1
         with:
-          files: ./cr-linux
-        # if: startsWith(github.ref, 'refs/tags/')
+          files: ./my-app
+          tag_name: ${{ github.ref_name }}
+          overwrite: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Use the GitHub token for authorization
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
