@@ -1,9 +1,10 @@
 name: Build and Release Deno Binary
 
 on:
-  push:
-    tags:
-      - 'v*' # Trigger only for version tags
+  # push:
+  #   tags:
+  #     - 'v*' # Trigger only for version tags
+  workflow_dispatch
 permissions:
   contents: write
 
