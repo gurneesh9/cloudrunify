@@ -11,8 +11,13 @@ container: # Container configuration
   image: # Container image URL (Artifact Registry or GCR)
   port: # Port for the container
   env_vars: # Environment variables for the container
-    - name: # Environment variable name
-      value: # Environment variable value
+    - name: # Regular environment variable name
+      value: # Regular environment variable value
+    - name: # Environment variable name that references a secret
+      valueFrom:
+        secretKeyRef:
+          name: # Name of the secret in Secret Manager
+          key: # Key within the secret (if applicable)
   resources:
     cpu: # CPU resource limit
     memory: # Memory resource limit

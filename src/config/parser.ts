@@ -1,5 +1,6 @@
 import { parse, stringify } from "npm:yaml";
 import { readFileSync } from "node:fs";
+
 export interface CloudRunConfig {
   version: string;
   project_id: string;
@@ -12,7 +13,10 @@ export interface CloudRunConfig {
   container: {
     image: string;
     port: number;
-    env_vars: Array<{ name: string; value: string }>;
+    env_vars: Array<
+      | { name: string; value: string } // Regular environment variable
+      | { name: string; valueFrom: { secretKeyRef: { name: string } } } // Secret reference
+    >;
     resources: {
       cpu: string;
       memory: string;
@@ -72,11 +76,33 @@ export class ConfigParser {
 
     // Scaling validation
     if (
-      !config.container.scaling?.min_instances ||
-      !config.container.scaling?.max_instances ||
-      !config.container.scaling?.concurrency
+      config.container.scaling &&
+      (config.container.scaling.min_instances < 0 ||
+        config.container.scaling.max_instances < config.container.scaling.min_instances ||
+        config.container.scaling.concurrency < 1 ||
+        config.container.scaling.concurrency > 1000)
     ) {
       console.error("Invalid scaling configuration");
+      return false;
+    }
+
+    // Environment variables validation
+    if (Array.isArray(config.container.env_vars)) {
+      for (const envVar of config.container.env_vars) {
+        // Type guard to check if envVar has valueFrom
+        const hasValueFrom = 'valueFrom' in envVar;
+
+        if (
+          !envVar.name ||
+          (hasValueFrom ? !('value' in envVar) && !envVar.valueFrom : !envVar.value) ||
+          (hasValueFrom && !envVar.valueFrom.secretKeyRef)
+        ) {
+          console.error("Invalid environment variable configuration");
+          return false;
+        }
+      }
+    } else {
+      console.error("Environment variables must be an array");
       return false;
     }
 

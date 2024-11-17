@@ -153,10 +153,25 @@ export class CloudRunService {
               },
             }),
             ...(envVars.length > 0 && {
-              env: envVars.map((envVar) => ({
-                name: envVar.name,
-                value: envVar.value,
-              })),
+              env: envVars.map((envVar) => {
+                // Check if the environment variable references a secret
+                if ('valueFrom' in envVar) {
+                  return {
+                    name: envVar.name,
+                    valueSource: {
+                      secretKeyRef: {
+                        secret: envVar.valueFrom.secretKeyRef.name,
+                        version: "latest"
+                      },
+                    },
+                  };
+                } else {
+                  return {
+                    name: envVar.name,
+                    value: envVar.value,
+                  };
+                }
+              }),
             }),
             ...(secrets.length > 0 && {
               volumeMounts: this.createVolumeMounts(secrets),
@@ -196,16 +211,7 @@ export class CloudRunService {
       await this.client.updateService({
         service: {
           name: `projects/${projectId}/locations/${region}/services/${serviceName}`,
-          // Include the new revision details here
-          template: {
-            containers: [
-              {
-                image: config.container.image,
-                ports: [{ containerPort: config.container.port }],
-                // Add other necessary configurations for the revision
-              },
-            ],
-          },
+          template: service.template, // Use the constructed service template
         },
       });
     } catch (error) {
@@ -220,7 +226,6 @@ export class CloudRunService {
           service,
         });
       } else {
-        // console.error("Error fetching service details:", error);
         throw error; // Rethrow if it's not a 404 error
       }
     }
