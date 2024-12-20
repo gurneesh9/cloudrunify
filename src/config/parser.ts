@@ -1,10 +1,21 @@
 import { parse, stringify } from "npm:yaml";
 import { readFileSync } from "node:fs";
 
+export interface EnvironmentConfig {
+  project_id: string;
+  region: string;
+}
+
+export type Environment = 'dev' | 'staging' | 'prod';
 export interface CloudRunConfig {
   version: string;
   project_id: string;
   region: string;
+  environments: {
+    dev: EnvironmentConfig;
+    staging: EnvironmentConfig;
+    prod: EnvironmentConfig;
+  };
   service: {
     name: string;
     allow_unauthenticated: boolean;
@@ -115,6 +126,34 @@ export class ConfigParser {
       return false;
     }
 
+    // Add environments validation to existing validation
+    if (!config.environments?.dev || !config.environments?.staging || !config.environments?.prod) {
+      console.error("Missing required environment configurations");
+      return false;
+    }
+
+    // Validate each environment has required fields
+    for (const env of ['dev', 'staging', 'prod'] as const) {
+      if (!config.environments[env].project_id || !config.environments[env].region) {
+        console.error(`Missing required fields in ${env} environment configuration`);
+        return false;
+      }
+    }
+
     return true;
+  }
+
+  static getServiceNameForEnv(config: CloudRunConfig, env: Environment): string {
+    return `${config.service.name}-${env}`;
+  }
+
+  static getConfigForEnv(config: CloudRunConfig, env: Environment): CloudRunConfig {
+    return {
+      ...config,
+      service: {
+        ...config.service,
+        name: this.getServiceNameForEnv(config, env)
+      }
+    };
   }
 }

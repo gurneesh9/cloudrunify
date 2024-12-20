@@ -2,6 +2,17 @@ version: # Version of the YAML schema
 project_id: # GCP Project ID
 region: # Default region for the service
 
+environments:
+  dev:
+    project_id: my-project-dev
+    region: us-central1
+  staging:
+    project_id: my-project-staging
+    region: us-central1
+  prod:
+    project_id: my-project-prod
+    region: us-central1
+
 service: # Service configuration
   name: # Cloud Run service name
   allow_unauthenticated: <boolean> # Whether to allow unauthenticated access
