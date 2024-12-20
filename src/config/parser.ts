@@ -148,11 +148,18 @@ export class ConfigParser {
   }
 
   static getConfigForEnv(config: CloudRunConfig, env: Environment): CloudRunConfig {
+    const serviceName = this.getServiceNameForEnv(config, env);
+    // Parse the original image name to handle the tag correctly
+    const [imagePath, imageTag] = config.container.image.split(':');
     return {
       ...config,
       service: {
         ...config.service,
-        name: this.getServiceNameForEnv(config, env)
+        name: serviceName
+      },
+      container: {
+        ...config.container,
+        image: `${imagePath}-${env}:latest`
       }
     };
   }
